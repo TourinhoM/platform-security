@@ -1,0 +1,112 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sbom-sync
+  namespace: dtrack
+spec:
+  # Domingo 02:00 UTC — fora do horário de pico do lab
+  schedule: "0 2 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          serviceAccountName: dtrack-sbom-sync
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: false
+          containers:
+            - name: sync
+              image: aquasec/trivy:0.62.1
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  apk add --no-cache curl jq >/dev/null 2>&1
+
+                  KUBE="https://kubernetes.default.svc"
+                  TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                  CA="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+                  # SbomReport omite o registry prefix de algumas imagens.
+                  # Mapeamento baseado nos registries reais observados nos pods.
+                  resolve_image() {
+                    case "$1" in
+                      argoproj/*)         echo "quay.io/$1" ;;
+                      docker/library/*)   echo "public.ecr.aws/$1" ;;
+                      external-secrets/*) echo "ghcr.io/$1" ;;
+                      jetstack/*)         echo "quay.io/$1" ;;
+                      library/redis:*)    echo "redis:${1#library/redis:}" ;;
+                      *)                  echo "$1" ;;
+                    esac
+                  }
+
+                  curl -sf --cacert "$CA" \
+                      -H "Authorization: Bearer $TOKEN" \
+                      "$KUBE/apis/aquasecurity.github.io/v1alpha1/sbomreports" \
+                    | jq -r '.items[] | .report.artifact | select(.tag and .tag != "") | "\(.repository):\(.tag)"' \
+                    | sort -u > /tmp/images.txt
+
+                  echo "Unique images: $(wc -l < /tmp/images.txt)"
+
+                  while IFS= read -r IMAGE; do
+                    PROJECT="${IMAGE%:*}"
+                    VERSION="${IMAGE##*:}"
+                    SCAN_IMAGE=$(resolve_image "$IMAGE")
+
+                    echo "-> $PROJECT:$VERSION"
+                    [ "$SCAN_IMAGE" != "$IMAGE" ] && echo "   (resolved: $SCAN_IMAGE)"
+
+                    trivy image \
+                      --quiet \
+                      --format cyclonedx \
+                      --scanners vuln \
+                      --timeout 10m \
+                      --output /tmp/bom.json \
+                      "$SCAN_IMAGE" 2>/dev/null || { echo "   SKIP: scan failed"; continue; }
+
+                    [ -s /tmp/bom.json ] || { echo "   SKIP: empty BOM"; continue; }
+
+                    BOM_B64=$(base64 -w 0 /tmp/bom.json)
+
+                    printf '{"projectName":"%s","projectVersion":"%s","autoCreate":true,"bom":"%s"}' \
+                      "$PROJECT" "$VERSION" "$BOM_B64" > /tmp/payload.json
+
+                    HTTP=$(curl -s \
+                      -o /tmp/resp.json \
+                      -w "%{http_code}" \
+                      -X PUT "$DTRACK_URL/api/v1/bom" \
+                      -H "X-Api-Key: $DTRACK_API_KEY" \
+                      -H "Content-Type: application/json" \
+                      --data @/tmp/payload.json)
+
+                    if [ "$HTTP" = "200" ]; then
+                      TOKEN_VAL=$(jq -r '.token // "?"' /tmp/resp.json 2>/dev/null || echo "?")
+                      echo "   OK token=$TOKEN_VAL"
+                    else
+                      echo "   ERR HTTP $HTTP: $(head -c 300 /tmp/resp.json 2>/dev/null)"
+                    fi
+                  done < /tmp/images.txt
+
+                  echo "Sync complete."
+              env:
+                - name: DTRACK_URL
+                  value: http://security-dependency-track-api-server.dtrack.svc:8080
+                - name: DTRACK_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: dtrack-api-key
+                      key: api-key
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 1000m
+                  memory: 2Gi

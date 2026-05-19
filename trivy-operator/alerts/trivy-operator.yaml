@@ -1,0 +1,60 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: trivy-operator-rules
+  labels:
+    app.kubernetes.io/name: trivy-operator
+    app.kubernetes.io/component: alerts
+    # release=monitoring e o ruleSelector do kube-prometheus-stack.
+    release: monitoring
+spec:
+  groups:
+    - name: trivy.runtime-security
+      interval: 1m
+      rules:
+        # Qualquer workload no cluster com pelo menos 1 vulnerabilidade
+        # de severity High ou Critical, com fix disponivel (ignoreUnfixed:
+        # true no chart). Agrupa por namespace+nome do recurso pra cada
+        # workload virar um alert separado — mais facil de triagear.
+        - alert: TrivyHighOrCriticalCVEInRunningImage
+          expr: |
+            sum by (resource_namespace, resource_name, image_repository, image_tag)
+              (trivy_image_vulnerabilities{severity=~"Critical|High"}) > 0
+          for: 10m
+          labels:
+            severity: warning
+            scope: supply-chain
+          annotations:
+            summary: 'Trivy: {{ $labels.resource_namespace }}/{{ $labels.resource_name }} com {{ $value }} CVE(s) High/Critical'
+            description: |
+              Imagem {{ $labels.image_repository }}:{{ $labels.image_tag }}
+              rodando em {{ $labels.resource_namespace }}/{{ $labels.resource_name }}
+              tem {{ $value }} vulnerabilidade(s) High/Critical com fix disponivel.
+              Investigar:
+                kubectl -n trivy-system get vulnerabilityreport \
+                  -l trivy-operator.resource.namespace={{ $labels.resource_namespace }},trivy-operator.resource.name={{ $labels.resource_name }}
+              Mitigacao: bump da imagem pra tag com CVE corrigido. Se nao
+              ha tag corrigida upstream, considerar troca de base image.
+
+        # Secret leak detectado dentro de uma imagem. Sinal forte —
+        # alguem deu COPY de .env, kubeconfig, chave ssh, etc. pra
+        # dentro da imagem. Critical mesmo em pre-prod porque expor uma
+        # vez ja vazou.
+        - alert: TrivyExposedSecretInImage
+          expr: |
+            sum by (resource_namespace, resource_name, image_repository)
+              (trivy_exposedsecrets_secrets) > 0
+          for: 5m
+          labels:
+            severity: critical
+            scope: supply-chain
+          annotations:
+            summary: 'Trivy: secret embeddado em imagem de {{ $labels.resource_namespace }}/{{ $labels.resource_name }}'
+            description: |
+              Imagem {{ $labels.image_repository }} contem secret(s)
+              detectado(s) por Trivy. Inspecionar:
+                kubectl -n trivy-system get exposedsecretreport \
+                  -l trivy-operator.resource.namespace={{ $labels.resource_namespace }},trivy-operator.resource.name={{ $labels.resource_name }} \
+                  -o yaml
+              Acao imediata: rotacionar o secret leaked + rebuild da
+              imagem com Dockerignore corrigido.

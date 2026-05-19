@@ -1,0 +1,24 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dtrack-tls
+  labels:
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/component: tls
+spec:
+  secretName: dtrack-tls
+
+  duration: 2160h
+  renewBefore: 360h
+
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+
+  dnsNames:
+    - dtrack.local
+
+  issuerRef:
+    name: ca-issuer
+    kind: ClusterIssuer

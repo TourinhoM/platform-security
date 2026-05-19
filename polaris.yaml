@@ -1,0 +1,21 @@
+# Polaris config pro deploy-trivy-operator.
+#
+# Cobertura: Polaris escaneia recursos com pod-spec (Deployment,
+# StatefulSet, etc.). Este repo so contem PrometheusRule (CRD do
+# Prometheus Operator), sem pod-spec. Polaris roda mas nao encontra
+# recursos pra avaliar.
+#
+# O Deployment do trivy-operator controller em si vem do Helm chart
+# Aqua, referenciado em
+# `deploy-argocd/apps/applications/security-trivy-operator.yaml` —
+# lint do controller acontece via dryrun do chart, nao aqui.
+
+checks:
+  # Out-of-scope: homelab single-node WSL
+  priorityClassNotSet: ignore
+  topologySpreadConstraint: ignore
+  missingPodDisruptionBudget: ignore
+  missingNetworkPolicy: ignore
+  deploymentMissingReplicas: ignore
+
+  metadataAndInstanceMismatched: ignore

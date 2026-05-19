@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: dtrack
+resources:
+  - namespace.yaml
+  - certificate-dtrack.yaml
+  - externalsecret-dtrack.yaml
+  - externalsecret-dtrack-api-key.yaml
+  - ingress-dtrack.yaml
+  - serviceaccount-sbom-sync.yaml
+  - clusterrole-sbom-sync.yaml
+  - clusterrolebinding-sbom-sync.yaml
+  - cronjob-sbom-sync.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: dependency-track
+      app.kubernetes.io/managed-by: argocd
+    includeSelectors: false
+    includeTemplates: true

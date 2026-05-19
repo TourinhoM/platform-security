@@ -1,0 +1,8 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dtrack-sbom-sync
+rules:
+  - apiGroups: ["aquasecurity.github.io"]
+    resources: ["sbomreports"]
+    verbs: ["get", "list"]
