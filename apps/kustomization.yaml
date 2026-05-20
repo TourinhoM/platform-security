@@ -3,3 +3,5 @@ kind: Kustomization
 resources:
   - security-dependency-track-config.yaml
   - security-trivy-operator-config.yaml
+  - security-vault.yaml
+  - security-vault-config.yaml

@@ -1,0 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: security-vault
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: system
+  source:
+    repoURL: https://helm.releases.hashicorp.com
+    chart: vault
+    targetRevision: 0.28.0
+    helm:
+      values: |
+        global:
+          enabled: true
+
+        injector:
+          enabled: false
+
+        server:
+          standalone:
+            enabled: true
+            config: |
+              ui = true
+
+              listener "tcp" {
+                tls_disable = 1
+                address = "[::]:8200"
+                cluster_address = "[::]:8201"
+              }
+
+              storage "file" {
+                path = "/vault/data"
+              }
+
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+              cpu: 200m
+
+          dataStorage:
+            enabled: true
+            size: 1Gi
+
+        ui:
+          enabled: true
+          serviceType: ClusterIP
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
