@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-migration-script
+  namespace: vault
+data:
+  migrate.py: |
+    #!/usr/bin/env python3
+    """
+    Migra secrets dos K8s Secrets para HashiCorp Vault KV v2.
+    Usa apenas stdlib Python — sem dependências externas.
+    """
+    import base64, json, os, ssl, sys, urllib.request, urllib.error
+
+    # Kubernetes in-cluster (lê token diretamente do arquivo)
+    KUBE_HOST = f"https://{os.environ['KUBERNETES_SERVICE_HOST']}:{os.environ['KUBERNETES_SERVICE_PORT']}"
+    KUBE_CA   = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    with open("/var/run/secrets/kubernetes.io/serviceaccount/token") as f:
+        KUBE_TOKEN = f.read().strip()
+    kube_ssl = ssl.create_default_context(cafile=KUBE_CA)
+
+    # Vault
+    VAULT_ADDR = "http://security-vault.vault.svc.cluster.local:8200"
+    with open("/vault/migration-token/token") as f:
+        VAULT_TOKEN = f.read().strip()
+
+    def get_k8s_secret_field(namespace, secret_name, key):
+        url = f"{KUBE_HOST}/api/v1/namespaces/{namespace}/secrets/{secret_name}"
+        req = urllib.request.Request(url)
+        req.add_header("Authorization", f"Bearer {KUBE_TOKEN}")
+        try:
+            with urllib.request.urlopen(req, context=kube_ssl) as resp:
+                data = json.loads(resp.read())
+                if "data" in data and key in data["data"]:
+                    return base64.b64decode(data["data"][key]).decode()
+                print(f"  WARN: key '{key}' não encontrada em {namespace}/{secret_name}")
+                return None
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                print(f"  WARN: secret {namespace}/{secret_name} não encontrado")
+                return None
+            raise
+
+    def vault_request(method, path, data=None):
+        url = f"{VAULT_ADDR}/v1/{path}"
+        body = json.dumps(data).encode() if data else None
+        req = urllib.request.Request(url, data=body, method=method)
+        req.add_header("X-Vault-Token", VAULT_TOKEN)
+        if body:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            raise
+
+    def vault_kv_get(path):
+        result = vault_request("GET", f"secret/data/{path}")
+        if result is None:
+            return {}
+        return result.get("data", {}).get("data", {})
+
+    def vault_kv_put(path, new_fields):
+        existing = vault_kv_get(path)
+        vault_request("POST", f"secret/data/{path}", {"data": {**existing, **new_fields}})
+
+    def migrate(namespace, secret_name, k8s_key, vault_path, vault_field):
+        print(f"  {namespace}/{secret_name}[{k8s_key}] → secret/cluster/{vault_path}[{vault_field}]")
+        if vault_field in vault_kv_get(f"cluster/{vault_path}"):
+            print("    SKIP: já existe no Vault"); return
+        value = get_k8s_secret_field(namespace, secret_name, k8s_key)
+        if value is None:
+            return
+        vault_kv_put(f"cluster/{vault_path}", {vault_field: value})
+        print("    OK")
+
+    MIGRATIONS = [
+        ("infra",      "postgresql-auth",            "POSTGRES_PASSWORD",       "postgresql", "superuser_password"),
+        ("monitoring", "grafana-db-credentials",     "GF_DATABASE_PASSWORD",    "grafana",    "db_password"),
+        ("monitoring", "grafana-admin-credentials",  "admin-password",           "grafana",    "admin_password"),
+        ("dtrack",     "dtrack-db-credentials",      "password",                 "dtrack",     "db_password"),
+        ("dtrack",     "dtrack-api-key",              "api-key",                  "dtrack",     "api_key"),
+        ("keycloak",   "keycloak-admin-credentials", "password",                 "keycloak",   "admin_password"),
+        ("argocd",     "argocd-repo-creds-github",   "githubAppID",              "argocd",     "github_app_id"),
+        ("argocd",     "argocd-repo-creds-github",   "githubAppInstallationID",  "argocd",     "github_app_installation_id"),
+        ("argocd",     "argocd-repo-creds-github",   "githubAppPrivateKey",      "argocd",     "github_app_private_key"),
+    ]
+
+    if __name__ == "__main__":
+        errors = 0
+        print("=== Iniciando migração Bitwarden → Vault ===\n")
+        for m in MIGRATIONS:
+            try:
+                migrate(*m)
+            except Exception as e:
+                print(f"    ERROR: {e}", file=sys.stderr)
+                errors += 1
+        print(f"\n=== {'Concluído com erros' if errors else 'Concluído com sucesso'} ===")
+        sys.exit(1 if errors else 0)
