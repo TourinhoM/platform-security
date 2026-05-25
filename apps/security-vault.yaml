@@ -47,6 +47,28 @@ spec:
             enabled: true
             size: 1Gi
 
+          volumes:
+            - name: unseal-key
+              secret:
+                secretName: vault-unseal-key
+
+          volumeMounts:
+            - name: unseal-key
+              mountPath: /vault/userconfig/vault-unseal-key
+              readOnly: true
+
+          postStart:
+            - /bin/sh
+            - -c
+            - |
+              sleep 5
+              while true; do
+                vault status; rc=$?
+                [ "$rc" -eq 0 ] && exit 0
+                [ "$rc" -eq 2 ] && vault operator unseal "$(cat /vault/userconfig/vault-unseal-key/key)" && exit 0
+                sleep 2
+              done
+
         ui:
           enabled: true
           serviceType: ClusterIP
