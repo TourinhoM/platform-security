@@ -4,7 +4,7 @@ metadata:
   name: security-dependency-track-config
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "4"
 spec:
   project: system
   source:
