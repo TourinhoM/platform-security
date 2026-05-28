@@ -60,6 +60,27 @@ data:
       policies=crossplane-write \
       ttl=1h
 
+    echo "=== Secrets de aplicação ==="
+    genpass() { cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32; }
+
+    vault kv put secret/cluster/grafana \
+      admin_password="$(genpass)" \
+      db_password="$(genpass)"
+    echo "secret/cluster/grafana criado."
+
+    vault kv put secret/cluster/postgresql \
+      superuser_password="$(genpass)"
+    echo "secret/cluster/postgresql criado."
+
+    vault kv put secret/cluster/keycloak \
+      admin_password="$(genpass)"
+    echo "secret/cluster/keycloak criado."
+
+    vault kv put secret/cluster/dtrack \
+      db_password="$(genpass)" \
+      api_key=""
+    echo "secret/cluster/dtrack criado."
+
     echo "=== Revogando token de bootstrap ==="
     vault token revoke -self || true
 
