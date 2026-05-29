@@ -81,6 +81,11 @@ data:
       api_key=""
     echo "secret/cluster/dtrack criado."
 
+    vault kv put secret/cluster/backstage \
+      db_password="$(genpass)" \
+      github_token=""
+    echo "secret/cluster/backstage criado."
+
     echo "=== Revogando token de bootstrap ==="
     vault token revoke -self || true
 
