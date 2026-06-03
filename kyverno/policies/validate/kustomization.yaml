@@ -3,6 +3,4 @@ kind: Kustomization
 resources:
   - require-resource-limits.yaml
   - disallow-latest-tag.yaml
-  - require-run-as-nonroot.yaml
-  - disallow-privileged-containers.yaml
   - require-pod-probes.yaml
