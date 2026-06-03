@@ -1,0 +1,41 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Proibe imagens com tag :latest ou sem tag. Garante deploy
+      reproduzivel e casa com o fluxo de write-back de versao do
+      GitOps (update-kustomize-image). Espelha o kube-linter.
+spec:
+  background: true
+  rules:
+    - name: require-image-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        failureAction: Audit
+        message: "Imagem deve ter tag explicita (sem :latest, sem tag implicita)."
+        pattern:
+          spec:
+            containers:
+              - image: "*:*"
+    - name: validate-image-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        failureAction: Audit
+        message: "Tag :latest e proibida; use uma versao fixa."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"

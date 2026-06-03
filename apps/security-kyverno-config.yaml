@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: security-kyverno-config
+  namespace: argocd
+  annotations:
+    # Wave 5 = depois do chart Kyverno (wave 0 em platform-gitops):
+    # as ClusterPolicy referenciam CRDs (kyverno.io/v1) que so existem
+    # apos o chart sincronizar.
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: system
+  source:
+    repoURL: https://github.com/TourinhoM/platform-security.git
+    targetRevision: main
+    path: kyverno
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 15
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m

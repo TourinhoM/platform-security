@@ -1,0 +1,35 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    policies.kyverno.io/title: Require Resource Limits
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Todo container deve declarar cpu e memory limits, p/ evitar que
+      um workload sature o WSL single-node. Espelha o check do
+      kube-linter no CI (shift-left -> runtime).
+spec:
+  # background: avalia recursos JA existentes (alem do admission),
+  # populando os PolicyReports historicos.
+  background: true
+  rules:
+    - name: validate-resources
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        # Audit: NAO bloqueia, so reporta no PolicyReport. Promover p/
+        # Enforce depois que os reports estiverem limpos.
+        failureAction: Audit
+        message: "Containers devem definir resources.limits (cpu e memory)."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"
