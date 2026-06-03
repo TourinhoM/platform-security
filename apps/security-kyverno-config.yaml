@@ -8,6 +8,7 @@ metadata:
     # as ClusterPolicy referenciam CRDs (kyverno.io/v1) que so existem
     # apos o chart sincronizar.
     argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/compare-options: ServerSideDiff=true,IncludeMutationWebhook=true
 spec:
   project: system
   source:
