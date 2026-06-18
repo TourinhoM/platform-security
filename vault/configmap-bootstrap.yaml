@@ -46,6 +46,18 @@ data:
     }
     POLICY
 
+    echo "=== Policy: appdatabase-write ==="
+    # Estreita de propósito: o seeder da composition AppDatabase só escreve
+    # conexões de banco em secret/databases/<env>/<app>. Não toca no resto do KV.
+    vault policy write appdatabase-write - <<'POLICY'
+    path "secret/data/databases/*" {
+      capabilities = ["create", "read", "update"]
+    }
+    path "secret/metadata/databases/*" {
+      capabilities = ["read", "list"]
+    }
+    POLICY
+
     echo "=== Role: eso ==="
     vault write auth/kubernetes/role/eso \
       bound_service_account_names=external-secrets \
@@ -59,6 +71,15 @@ data:
       bound_service_account_namespaces=crossplane-system \
       policies=crossplane-write \
       ttl=1h
+
+    echo "=== Role: appdatabase-seeder ==="
+    # SA dos Jobs de seeding (ns infra). TTL curto: o token só vive o tempo do
+    # `vault kv put` no boot do Job; nenhum token fixo persiste.
+    vault write auth/kubernetes/role/appdatabase-seeder \
+      bound_service_account_names=appdatabase-seeder \
+      bound_service_account_namespaces=infra \
+      policies=appdatabase-write \
+      ttl=10m
 
     echo "=== Secrets de aplicação ==="
     genpass() { cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32; }
