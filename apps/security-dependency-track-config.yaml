@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 spec:
-  project: system
+  project: security
   source:
     repoURL: https://github.com/TourinhoM/platform-security.git
     targetRevision: main
