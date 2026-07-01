@@ -5,3 +5,5 @@ resources:
   - security-kyverno-config.yaml
   - security-vault.yaml
   - security-vault-config.yaml
+  - security-dependency-track.yaml
+  - security-dependency-track-config.yaml
